@@ -1,6 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
-from tkinter import scrolledtext
+from tkinter import ttk, scrolledtext
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import customtkinter as ctk
@@ -8,7 +7,7 @@ from binance.client import Client
 from binance import ThreadedWebsocketManager
 import time
 
-import config  # файл з твоїми API ключами
+from core import config
 
 
 class DogeTradeApp(ctk.CTk):
@@ -106,7 +105,6 @@ class DogeTradeApp(ctk.CTk):
         self.add_log("Connected to Binance WebSocket", force=True)
 
     def add_log(self, message: str, force: bool = False):
-        """Додає повідомлення в лог (не частіше ніж 1 раз на 5 сек, якщо не force)"""
         now = time.time()
         if force or now - self.last_log_time >= 5:
             self.log_text.insert("end", message + "\n")
@@ -137,11 +135,3 @@ class DogeTradeApp(ctk.CTk):
             except Exception:
                 pass
         self.destroy()
-
-
-if __name__ == "__main__":
-    ctk.set_appearance_mode("dark")
-    ctk.set_default_color_theme("blue")
-
-    app = DogeTradeApp()
-    app.mainloop()
