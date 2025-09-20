@@ -1,0 +1,7 @@
+customtkinter
+matplotlib
+pandas
+numpy
+python-binance
+scikit-learn
+torch
