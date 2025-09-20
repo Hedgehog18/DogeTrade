@@ -1,12 +1,12 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 import customtkinter as ctk
-from binance.client import Client
 from binance import ThreadedWebsocketManager
+import pandas as pd
 import time
 
+from core.binance_api import get_historical_futures_klines
 from core import config
-from core.binance_api import get_historical_klines
 from ui.chart import create_candlestick_chart
 
 
@@ -15,21 +15,25 @@ class DogeTradeApp(ctk.CTk):
         super().__init__()
 
         # Налаштування головного вікна
-        self.title("DogeTrade Signals")
+        self.title("DogeTrade Signals (Futures)")
         self.geometry("1000x600")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # Binance клієнт
-        self.client = Client(config.BINANCE_API_KEY, config.BINANCE_API_SECRET)
-
         # Прапорець для завершення
         self.running = True
+
+        # DataFrame для свічок
+        self.df = None
+
+        # Ключі сокетів
+        self.kline_socket_key = None
+        self.ticker_socket_key = None
 
         # === Верхня панель ===
         top_frame = ctk.CTkFrame(self, height=50)
         top_frame.pack(side="top", fill="x", padx=5, pady=5)
 
-        self.pair_label = ctk.CTkLabel(top_frame, text="DOGE/USDT", font=("Arial", 18, "bold"))
+        self.pair_label = ctk.CTkLabel(top_frame, text="DOGE/USDT (Futures)", font=("Arial", 18, "bold"))
         self.pair_label.pack(side="left", padx=10)
 
         self.price_label = ctk.CTkLabel(top_frame, text="Last Price: 0.00000", font=("Arial", 16))
@@ -67,11 +71,11 @@ class DogeTradeApp(ctk.CTk):
         self.chart_frame = ctk.CTkFrame(horizontal_pane)
         horizontal_pane.add(self.chart_frame, stretch="always")
 
-        # Отримуємо історичні дані (наприклад, 100 свічок по 1 хв)
-        df = get_historical_klines(self.client, "DOGEUSDT", "1m", 100)
+        # Історичні дані з Futures
+        self.df = get_historical_futures_klines("DOGEUSDT", "1m", 100)
 
         # Малюємо свічковий графік
-        self.chart_canvas = create_candlestick_chart(self.chart_frame, df)
+        self.chart_canvas = create_candlestick_chart(self.chart_frame, self.df)
 
         # Права частина (історія сигналів)
         signals_frame = ctk.CTkFrame(horizontal_pane, width=250)
@@ -104,12 +108,32 @@ class DogeTradeApp(ctk.CTk):
         self.last_log_time = 0
 
         # Запускаємо WebSocket
-        self.twm = ThreadedWebsocketManager(api_key=config.BINANCE_API_KEY,
-                                            api_secret=config.BINANCE_API_SECRET)
+        self.twm = ThreadedWebsocketManager(
+            api_key=config.BINANCE_API_KEY,
+            api_secret=config.BINANCE_API_SECRET
+        )
         self.twm.start()
-        self.twm.start_symbol_ticker_socket(callback=self.handle_ticker, symbol="DOGEUSDT")
 
-        self.add_log("Connected to Binance WebSocket", force=True)
+        # Запуск futures сокетів
+        self._start_sockets()
+
+        self.add_log("Connected to Binance Futures WebSocket", force=True)
+
+    def _start_sockets(self):
+        """Запуск futures ticker та kline через multiplex"""
+        interval = self.interval_var.get()
+
+        # Ціна (ticker)
+        self.ticker_socket_key = self.twm.start_futures_multiplex_socket(
+            callback=self.handle_ticker,
+            streams=["dogeusdt@ticker"]
+        )
+
+        # Свічки (kline)
+        self.kline_socket_key = self.twm.start_futures_multiplex_socket(
+            callback=self.handle_kline,
+            streams=[f"dogeusdt@kline_{interval}"]
+        )
 
     def add_log(self, message: str, force: bool = False):
         now = time.time()
@@ -124,27 +148,56 @@ class DogeTradeApp(ctk.CTk):
         if not self.running:
             return
         try:
-            price = float(msg["c"])
+            data = msg.get("data", msg)  # multiplex повертає {"stream":..., "data":...}
+            price = float(data["c"])
             self.after(0, self.update_price_label, price)
         except Exception as e:
             if self.running:
-                self.after(0, self.add_log, f"WebSocket error: {e}", True)
+                self.after(0, self.add_log, f"Ticker error: {e}", True)
 
     def update_price_label(self, price: float):
         self.price_label.configure(text=f"Last Price: {price:.5f}")
-        self.add_log(f"Price updated: {price:.5f}")
+        self.add_log(f"Futures Price updated: {price:.5f}")
+
+    def handle_kline(self, msg):
+        if not self.running:
+            return
+        try:
+            data = msg.get("data", msg)
+            k = data["k"]
+            t = pd.to_datetime(k["t"], unit="ms")
+            o, h, l, c, v = map(float, [k["o"], k["h"], k["l"], k["c"], k["v"]])
+            closed = k["x"]
+
+            if closed:
+                self.df.loc[t] = [o, h, l, c, v]
+                self.after(0, self.update_chart)
+                self.after(0, self.add_log, f"New Futures candle: {t} Close={c:.5f}", True)
+
+        except Exception as e:
+            if self.running:
+                self.after(0, self.add_log, f"Kline error: {e}", True)
+
+    def update_chart(self):
+        self.chart_canvas.get_tk_widget().destroy()
+        self.chart_canvas = create_candlestick_chart(self.chart_frame, self.df)
 
     def change_interval(self, new_interval):
-        """Оновлення графіка при зміні таймфрейму"""
+        """Перезапуск kline socket для нового таймфрейму"""
         self.add_log(f"Changing timeframe to {new_interval}", force=True)
 
-        df = get_historical_klines(self.client, "DOGEUSDT", new_interval, 100)
+        # Оновлюємо історичні дані
+        self.df = get_historical_futures_klines("DOGEUSDT", new_interval, 100)
+        self.update_chart()
 
-        # Видаляємо старий графік
-        self.chart_canvas.get_tk_widget().destroy()
+        # Перезапуск kline socket
+        if self.kline_socket_key is not None:
+            self.twm.stop_socket(self.kline_socket_key)
 
-        # Малюємо новий графік
-        self.chart_canvas = create_candlestick_chart(self.chart_frame, df)
+        self.kline_socket_key = self.twm.start_futures_multiplex_socket(
+            callback=self.handle_kline,
+            streams=[f"dogeusdt@kline_{new_interval}"]
+        )
 
     def on_closing(self):
         self.running = False
