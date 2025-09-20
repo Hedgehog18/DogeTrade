@@ -85,6 +85,12 @@ class DogeTradeApp(ctk.CTk):
         history_label.pack(pady=5)
 
         self.tree = ttk.Treeview(signals_frame, columns=("time", "signal", "price"), show="headings", height=15)
+
+        # 🔹 Збільшення шрифту в таблиці
+        style = ttk.Style()
+        style.configure("Treeview", font=("Arial", 13))
+        style.configure("Treeview.Heading", font=("Arial", 14, "bold"))
+
         self.tree.heading("time", text="Time")
         self.tree.heading("signal", text="Signal")
         self.tree.heading("price", text="Price")
@@ -93,16 +99,26 @@ class DogeTradeApp(ctk.CTk):
         self.tree.column("signal", width=70)
         self.tree.column("price", width=80)
 
-        self.tree.pack(fill="both", expand=True)
+        self.tree.pack(side="left", fill="both", expand=True)
 
-        # Нижня частина (логи)
+        # 🔹 Додаємо бокову прокрутку
+        tree_scrollbar = ttk.Scrollbar(signals_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscroll=tree_scrollbar.set)
+        tree_scrollbar.pack(side="right", fill="y")
+
+        # Нижня частина (логи + кнопки)
         bottom_frame = ctk.CTkFrame(vertical_pane, height=100)
         vertical_pane.add(bottom_frame)
 
+        # Логи
         self.log_text = scrolledtext.ScrolledText(
             bottom_frame, height=5, bg="#1e1e1e", fg="white", font=("Consolas", 13)
         )
-        self.log_text.pack(fill="both", expand=True)
+        self.log_text.pack(fill="both", expand=True, side="left")
+
+        # Кнопка очищення логів
+        clear_button = ctk.CTkButton(bottom_frame, text="Clear Logs", command=self.clear_logs)
+        clear_button.pack(side="right", padx=5, pady=5)
 
         # Логування (затримка)
         self.last_log_time = 0
@@ -141,8 +157,17 @@ class DogeTradeApp(ctk.CTk):
             self.log_text.insert("end", message + "\n")
             self.last_log_time = now
 
+    def clear_logs(self):
+        """Очищення вікна логів"""
+        self.log_text.delete("1.0", tk.END)
+
     def test_log(self):
-        self.add_log("Test log message", force=True)
+        # Тестова зміна сигналу для перевірки кольорів
+        import random
+        signals = ["BUY", "SELL", "HOLD"]
+        sig = random.choice(signals)
+        self.update_signal(sig, price=0.12345)
+        self.add_log(f"Test log message: {sig}", force=True)
 
     def handle_ticker(self, msg):
         if not self.running:
@@ -159,6 +184,27 @@ class DogeTradeApp(ctk.CTk):
         self.price_label.configure(text=f"Last Price: {price:.5f}")
         self.add_log(f"Futures Price updated: {price:.5f}")
 
+    def update_signal(self, signal: str, price: float):
+        """Оновлення індикатора сигналу з кольорами + таблиця"""
+        colors = {"BUY": "green", "SELL": "red", "HOLD": "gray"}
+        self.signal_label.configure(text=f"Signal: {signal}", text_color=colors.get(signal, "gray"))
+
+        # Додаємо запис в історію сигналів з тегом
+        tag = signal.lower()
+        self.tree.insert(
+            "", "end",
+            values=(pd.Timestamp.now().strftime("%H:%M:%S"), signal, f"{price:.5f}"),
+            tags=(tag,)
+        )
+
+        # 🔹 Прокручування вниз (до останнього сигналу)
+        self.tree.yview_moveto(1.0)
+
+        # 🔹 Налаштування кольорів тегів для рядків таблиці
+        self.tree.tag_configure("buy", foreground="green")
+        self.tree.tag_configure("sell", foreground="red")
+        self.tree.tag_configure("hold", foreground="gray")
+
     def handle_kline(self, msg):
         if not self.running:
             return
@@ -172,6 +218,7 @@ class DogeTradeApp(ctk.CTk):
             if closed:
                 self.df.loc[t] = [o, h, l, c, v]
                 self.after(0, self.update_chart)
+                self.after(0, self.update_signal, "HOLD", c)  # поки що завжди HOLD
                 self.after(0, self.add_log, f"New Futures candle: {t} Close={c:.5f}", True)
 
         except Exception as e:
