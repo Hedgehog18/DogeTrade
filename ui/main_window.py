@@ -1,13 +1,13 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
 import customtkinter as ctk
 from binance.client import Client
 from binance import ThreadedWebsocketManager
 import time
 
 from core import config
+from core.binance_api import get_historical_klines
+from ui.chart import create_candlestick_chart
 
 
 class DogeTradeApp(ctk.CTk):
@@ -57,14 +57,11 @@ class DogeTradeApp(ctk.CTk):
         chart_frame = ctk.CTkFrame(horizontal_pane)
         horizontal_pane.add(chart_frame, stretch="always")
 
-        fig = Figure(figsize=(5, 4), dpi=100)
-        ax = fig.add_subplot(111)
-        ax.plot([1, 2, 3, 4, 5], [10, 12, 8, 14, 11])  # тимчасовий графік
-        ax.set_title("DOGE/USDT Chart")
+        # Отримуємо історичні дані (наприклад, 100 свічок по 1 хв)
+        df = get_historical_klines(self.client, "DOGEUSDT", "1m", 100)
 
-        canvas = FigureCanvasTkAgg(fig, master=chart_frame)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True)
+        # Малюємо свічковий графік
+        self.chart_canvas = create_candlestick_chart(chart_frame, df)
 
         # Права частина (історія сигналів)
         signals_frame = ctk.CTkFrame(horizontal_pane, width=250)
