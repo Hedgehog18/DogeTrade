@@ -26,42 +26,50 @@ class DogeTradeApp(ctk.CTk):
         # Прапорець для завершення
         self.running = True
 
-        # Верхня панель
+        # === Верхня панель ===
         top_frame = ctk.CTkFrame(self, height=50)
         top_frame.pack(side="top", fill="x", padx=5, pady=5)
 
         self.pair_label = ctk.CTkLabel(top_frame, text="DOGE/USDT", font=("Arial", 18, "bold"))
         self.pair_label.pack(side="left", padx=10)
 
-        self.price_label = ctk.CTkLabel(top_frame, text="Last Price: 0.0000", font=("Arial", 16))
+        self.price_label = ctk.CTkLabel(top_frame, text="Last Price: 0.00000", font=("Arial", 16))
         self.price_label.pack(side="left", padx=20)
 
         self.signal_label = ctk.CTkLabel(top_frame, text="Signal: HOLD", font=("Arial", 16), text_color="gray")
         self.signal_label.pack(side="left", padx=20)
 
-        # Кнопка для тесту логів
         test_button = ctk.CTkButton(top_frame, text="Test Log", command=self.test_log)
         test_button.pack(side="right", padx=10)
 
-        # Центральна частина
-        center_frame = ctk.CTkFrame(self)
-        center_frame.pack(side="top", fill="both", expand=True, padx=5, pady=5)
+        # === Основний розподіл (вертикальний) ===
+        vertical_pane = tk.PanedWindow(
+            self, orient=tk.VERTICAL, sashrelief="raised", sashwidth=6, bg="gray30"
+        )
+        vertical_pane.pack(side="top", fill="both", expand=True, padx=5, pady=5)
 
-        chart_frame = ctk.CTkFrame(center_frame)
-        chart_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        # === Горизонтальний розподіл (графік ↔ сигнали) ===
+        horizontal_pane = tk.PanedWindow(
+            vertical_pane, orient=tk.HORIZONTAL, sashrelief="raised", sashwidth=6, bg="gray30"
+        )
+        vertical_pane.add(horizontal_pane, stretch="always")
+
+        # Ліва частина (графік)
+        chart_frame = ctk.CTkFrame(horizontal_pane)
+        horizontal_pane.add(chart_frame, stretch="always")
 
         fig = Figure(figsize=(5, 4), dpi=100)
         ax = fig.add_subplot(111)
-        ax.plot([1, 2, 3, 4, 5], [10, 12, 8, 14, 11])  # заглушка графіка
+        ax.plot([1, 2, 3, 4, 5], [10, 12, 8, 14, 11])  # тимчасовий графік
         ax.set_title("DOGE/USDT Chart")
 
         canvas = FigureCanvasTkAgg(fig, master=chart_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill="both", expand=True)
 
-        # Історія сигналів
-        signals_frame = ctk.CTkFrame(center_frame, width=250)
-        signals_frame.pack(side="right", fill="y", padx=5, pady=5)
+        # Права частина (історія сигналів)
+        signals_frame = ctk.CTkFrame(horizontal_pane, width=250)
+        horizontal_pane.add(signals_frame)
 
         history_label = ctk.CTkLabel(signals_frame, text="Signal History", font=("Arial", 14, "bold"))
         history_label.pack(pady=5)
@@ -75,16 +83,18 @@ class DogeTradeApp(ctk.CTk):
         self.tree.column("signal", width=70)
         self.tree.column("price", width=80)
 
-        self.tree.pack(fill="y", expand=True)
+        self.tree.pack(fill="both", expand=True)
 
-        # Логи з прокруткою
-        bottom_frame = ctk.CTkFrame(self, height=100)
-        bottom_frame.pack(side="bottom", fill="x", padx=5, pady=5)
+        # Нижня частина (логи)
+        bottom_frame = ctk.CTkFrame(vertical_pane, height=100)
+        vertical_pane.add(bottom_frame)
 
-        self.log_text = scrolledtext.ScrolledText(bottom_frame, height=5, bg="#1e1e1e", fg="white")
+        self.log_text = scrolledtext.ScrolledText(
+            bottom_frame, height=5, bg="#1e1e1e", fg="white", font=("Consolas", 13)
+        )
         self.log_text.pack(fill="both", expand=True)
 
-        # Обмеження частоти логів
+        # Логування (затримка)
         self.last_log_time = 0
 
         # Запускаємо WebSocket
@@ -103,11 +113,9 @@ class DogeTradeApp(ctk.CTk):
             self.last_log_time = now
 
     def test_log(self):
-        """Метод для кнопки Test Log"""
         self.add_log("Test log message", force=True)
 
     def handle_ticker(self, msg):
-        """Обробка повідомлень з WebSocket (у фоновому потоці)"""
         if not self.running:
             return
         try:
@@ -118,12 +126,10 @@ class DogeTradeApp(ctk.CTk):
                 self.after(0, self.add_log, f"WebSocket error: {e}", True)
 
     def update_price_label(self, price: float):
-        """Оновлює ціну у GUI (викликається у головному потоці)"""
-        self.price_label.configure(text=f"Last Price: {price:.4f}")
-        self.add_log(f"Price updated: {price:.4f}")
+        self.price_label.configure(text=f"Last Price: {price:.5f}")
+        self.add_log(f"Price updated: {price:.5f}")
 
     def on_closing(self):
-        """Коректне закриття програми"""
         self.running = False
         if self.twm is not None:
             try:
