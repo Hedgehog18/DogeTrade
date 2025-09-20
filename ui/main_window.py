@@ -38,6 +38,16 @@ class DogeTradeApp(ctk.CTk):
         self.signal_label = ctk.CTkLabel(top_frame, text="Signal: HOLD", font=("Arial", 16), text_color="gray")
         self.signal_label.pack(side="left", padx=20)
 
+        # Таймфрейм селектор
+        self.interval_var = tk.StringVar(value="1m")
+        intervals = ["1m", "5m", "15m", "1h", "4h", "1d"]
+
+        interval_menu = ctk.CTkOptionMenu(
+            top_frame, variable=self.interval_var, values=intervals,
+            command=self.change_interval
+        )
+        interval_menu.pack(side="right", padx=10)
+
         test_button = ctk.CTkButton(top_frame, text="Test Log", command=self.test_log)
         test_button.pack(side="right", padx=10)
 
@@ -54,14 +64,14 @@ class DogeTradeApp(ctk.CTk):
         vertical_pane.add(horizontal_pane, stretch="always")
 
         # Ліва частина (графік)
-        chart_frame = ctk.CTkFrame(horizontal_pane)
-        horizontal_pane.add(chart_frame, stretch="always")
+        self.chart_frame = ctk.CTkFrame(horizontal_pane)
+        horizontal_pane.add(self.chart_frame, stretch="always")
 
         # Отримуємо історичні дані (наприклад, 100 свічок по 1 хв)
         df = get_historical_klines(self.client, "DOGEUSDT", "1m", 100)
 
         # Малюємо свічковий графік
-        self.chart_canvas = create_candlestick_chart(chart_frame, df)
+        self.chart_canvas = create_candlestick_chart(self.chart_frame, df)
 
         # Права частина (історія сигналів)
         signals_frame = ctk.CTkFrame(horizontal_pane, width=250)
@@ -123,6 +133,18 @@ class DogeTradeApp(ctk.CTk):
     def update_price_label(self, price: float):
         self.price_label.configure(text=f"Last Price: {price:.5f}")
         self.add_log(f"Price updated: {price:.5f}")
+
+    def change_interval(self, new_interval):
+        """Оновлення графіка при зміні таймфрейму"""
+        self.add_log(f"Changing timeframe to {new_interval}", force=True)
+
+        df = get_historical_klines(self.client, "DOGEUSDT", new_interval, 100)
+
+        # Видаляємо старий графік
+        self.chart_canvas.get_tk_widget().destroy()
+
+        # Малюємо новий графік
+        self.chart_canvas = create_candlestick_chart(self.chart_frame, df)
 
     def on_closing(self):
         self.running = False
