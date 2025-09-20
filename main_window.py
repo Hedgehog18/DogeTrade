@@ -29,6 +29,10 @@ class DogeTradeApp(ctk.CTk):
         self.signal_label = ctk.CTkLabel(top_frame, text="Signal: HOLD", font=("Arial", 16), text_color="gray")
         self.signal_label.pack(side="left", padx=20)
 
+        # Кнопка для тесту логів
+        test_button = ctk.CTkButton(top_frame, text="Test Log", command=self.test_log)
+        test_button.pack(side="right", padx=10)
+
         # Центральна частина (графік + історія сигналів)
         center_frame = ctk.CTkFrame(self)
         center_frame.pack(side="top", fill="both", expand=True, padx=5, pady=5)
@@ -64,18 +68,25 @@ class DogeTradeApp(ctk.CTk):
 
         self.tree.pack(fill="y", expand=True)
 
-        # Додаємо тестові дані
-        self.tree.insert("", "end", values=("12:00", "BUY", "0.1425"))
-        self.tree.insert("", "end", values=("12:05", "SELL", "0.1410"))
-
         # Нижня панель (логи)
         bottom_frame = ctk.CTkFrame(self, height=100)
         bottom_frame.pack(side="bottom", fill="x", padx=5, pady=5)
 
         self.log_text = tk.Text(bottom_frame, height=5, bg="#1e1e1e", fg="white")
         self.log_text.pack(fill="both", expand=True)
-        self.log_text.insert("end", "Connected to Binance API (demo mode)\n")
-        self.log_text.insert("end", "Signal generated: BUY at 0.1425\n")
+
+        # Тестові повідомлення
+        self.add_log("Connected to Binance API (demo mode)")
+        self.add_log("Signal generated: BUY at 0.1425")
+
+    def add_log(self, message: str):
+        """Додає повідомлення в нижнє текстове поле логів"""
+        self.log_text.insert("end", message + "\n")
+        self.log_text.see("end")  # автоматична прокрутка вниз
+
+    def test_log(self):
+        """Метод для кнопки Test Log"""
+        self.add_log("Test log message")
 
     def on_closing(self):
         """Коректне закриття програми"""
