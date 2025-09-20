@@ -1,5 +1,5 @@
-customtkinter
-matplotlib
+customtkinter~=5.2.2
+matplotlib~=3.10.6
 pandas
 numpy
 python-binance

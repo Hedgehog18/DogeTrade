@@ -1,8 +1,14 @@
 import tkinter as tk
 from tkinter import ttk
+from tkinter import scrolledtext
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import customtkinter as ctk
+from binance.client import Client
+from binance import ThreadedWebsocketManager
+import time
+
+import config  # файл з твоїми API ключами
 
 
 class DogeTradeApp(ctk.CTk):
@@ -12,11 +18,15 @@ class DogeTradeApp(ctk.CTk):
         # Налаштування головного вікна
         self.title("DogeTrade Signals")
         self.geometry("1000x600")
-
-        # Обробка закриття (коректне завершення matplotlib + Tk)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # Верхня панель (поточна інформація)
+        # Binance клієнт
+        self.client = Client(config.BINANCE_API_KEY, config.BINANCE_API_SECRET)
+
+        # Прапорець для завершення
+        self.running = True
+
+        # Верхня панель
         top_frame = ctk.CTkFrame(self, height=50)
         top_frame.pack(side="top", fill="x", padx=5, pady=5)
 
@@ -33,11 +43,10 @@ class DogeTradeApp(ctk.CTk):
         test_button = ctk.CTkButton(top_frame, text="Test Log", command=self.test_log)
         test_button.pack(side="right", padx=10)
 
-        # Центральна частина (графік + історія сигналів)
+        # Центральна частина
         center_frame = ctk.CTkFrame(self)
         center_frame.pack(side="top", fill="both", expand=True, padx=5, pady=5)
 
-        # Ліва частина - графік
         chart_frame = ctk.CTkFrame(center_frame)
         chart_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
 
@@ -50,7 +59,7 @@ class DogeTradeApp(ctk.CTk):
         canvas.draw()
         canvas.get_tk_widget().pack(fill="both", expand=True)
 
-        # Права частина - історія сигналів
+        # Історія сигналів
         signals_frame = ctk.CTkFrame(center_frame, width=250)
         signals_frame.pack(side="right", fill="y", padx=5, pady=5)
 
@@ -68,34 +77,65 @@ class DogeTradeApp(ctk.CTk):
 
         self.tree.pack(fill="y", expand=True)
 
-        # Нижня панель (логи)
+        # Логи з прокруткою
         bottom_frame = ctk.CTkFrame(self, height=100)
         bottom_frame.pack(side="bottom", fill="x", padx=5, pady=5)
 
-        self.log_text = tk.Text(bottom_frame, height=5, bg="#1e1e1e", fg="white")
+        self.log_text = scrolledtext.ScrolledText(bottom_frame, height=5, bg="#1e1e1e", fg="white")
         self.log_text.pack(fill="both", expand=True)
 
-        # Тестові повідомлення
-        self.add_log("Connected to Binance API (demo mode)")
-        self.add_log("Signal generated: BUY at 0.1425")
+        # Обмеження частоти логів
+        self.last_log_time = 0
 
-    def add_log(self, message: str):
-        """Додає повідомлення в нижнє текстове поле логів"""
-        self.log_text.insert("end", message + "\n")
-        self.log_text.see("end")  # автоматична прокрутка вниз
+        # Запускаємо WebSocket
+        self.twm = ThreadedWebsocketManager(api_key=config.BINANCE_API_KEY,
+                                            api_secret=config.BINANCE_API_SECRET)
+        self.twm.start()
+        self.twm.start_symbol_ticker_socket(callback=self.handle_ticker, symbol="DOGEUSDT")
+
+        self.add_log("Connected to Binance WebSocket", force=True)
+
+    def add_log(self, message: str, force: bool = False):
+        """Додає повідомлення в лог (не частіше ніж 1 раз на 5 сек, якщо не force)"""
+        now = time.time()
+        if force or now - self.last_log_time >= 5:
+            self.log_text.insert("end", message + "\n")
+            self.last_log_time = now
 
     def test_log(self):
         """Метод для кнопки Test Log"""
-        self.add_log("Test log message")
+        self.add_log("Test log message", force=True)
+
+    def handle_ticker(self, msg):
+        """Обробка повідомлень з WebSocket (у фоновому потоці)"""
+        if not self.running:
+            return
+        try:
+            price = float(msg["c"])
+            self.after(0, self.update_price_label, price)
+        except Exception as e:
+            if self.running:
+                self.after(0, self.add_log, f"WebSocket error: {e}", True)
+
+    def update_price_label(self, price: float):
+        """Оновлює ціну у GUI (викликається у головному потоці)"""
+        self.price_label.configure(text=f"Last Price: {price:.4f}")
+        self.add_log(f"Price updated: {price:.4f}")
 
     def on_closing(self):
         """Коректне закриття програми"""
+        self.running = False
+        if self.twm is not None:
+            try:
+                self.twm.stop()
+            except Exception:
+                pass
         self.destroy()
 
 
 if __name__ == "__main__":
-    ctk.set_appearance_mode("dark")  # dark/light/system
-    ctk.set_default_color_theme("blue")  # теми: blue, dark-blue, green
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("blue")
 
     app = DogeTradeApp()
     app.mainloop()
