@@ -42,27 +42,30 @@ class DogeTradeApp(ctk.CTk):
         self.signal_label = ctk.CTkLabel(top_frame, text="Signal: HOLD", font=("Arial", 16), text_color="gray")
         self.signal_label.pack(side="left", padx=20)
 
+        # === Правий блок з кнопками ===
+        right_frame = ctk.CTkFrame(top_frame)
+        right_frame.pack(side="right")
+
+        # Кнопка тестових логів
+        test_button = ctk.CTkButton(right_frame, text="Test Log", command=self.test_log)
+        test_button.pack(side="left", padx=5)
+
         # Таймфрейм селектор
         self.interval_var = tk.StringVar(value="1m")
         intervals = ["1m", "5m", "15m", "1h", "4h", "1d"]
 
-        # === Кнопки справа: Test Log | [1m] | ⚙️ (⚙️ в самому правому куті) ===
-        self.settings_button = ctk.CTkButton(
-            top_frame,
-            text="⚙️",
-            width=40,
-            command=self.open_settings
-        )
-        self.settings_button.pack(side="right", padx=5)
-
         interval_menu = ctk.CTkOptionMenu(
-            top_frame, variable=self.interval_var, values=intervals,
+            right_frame, variable=self.interval_var, values=intervals,
             command=self.change_interval
         )
-        interval_menu.pack(side="right", padx=5)
+        interval_menu.pack(side="left", padx=5)
 
-        test_button = ctk.CTkButton(top_frame, text="Test Log", command=self.test_log)
-        test_button.pack(side="right", padx=5)
+        # Кнопка ⚙️ (налаштування)
+        settings_button = ctk.CTkButton(
+            right_frame, text="⚙️", width=40,
+            command=self.open_settings
+        )
+        settings_button.pack(side="left", padx=5)
 
         # === Основний розподіл (вертикальний) ===
         vertical_pane = tk.PanedWindow(
@@ -144,17 +147,55 @@ class DogeTradeApp(ctk.CTk):
 
         self.add_log("Connected to Binance Futures WebSocket", force=True)
 
-    def _start_sockets(self):
-        """Запуск futures ticker та kline через multiplex"""
-        interval = self.interval_var.get()
+    # ================== SETTINGS MODAL ==================
+    def open_settings(self):
+        """Відкрити вікно налаштувань"""
+        settings_window = ctk.CTkToplevel(self)
+        settings_window.title("Settings")
+        settings_window.geometry("400x350")
+        settings_window.grab_set()  # робимо модальним
 
-        # Ціна (ticker)
+        title_label = ctk.CTkLabel(settings_window, text="Application Settings", font=("Arial", 18, "bold"))
+        title_label.pack(pady=15)
+
+        # API Key
+        ctk.CTkLabel(settings_window, text="API Key:").pack(anchor="w", padx=20, pady=(5, 0))
+        api_key_entry = ctk.CTkEntry(settings_window, width=300)
+        api_key_entry.pack(padx=20, pady=5)
+
+        # API Secret
+        ctk.CTkLabel(settings_window, text="API Secret:").pack(anchor="w", padx=20, pady=(5, 0))
+        api_secret_entry = ctk.CTkEntry(settings_window, width=300, show="*")
+        api_secret_entry.pack(padx=20, pady=5)
+
+        # Trading Pair
+        ctk.CTkLabel(settings_window, text="Trading Pair:").pack(anchor="w", padx=20, pady=(5, 0))
+        trading_pair = ctk.CTkOptionMenu(
+            settings_window, values=["DOGEUSDT", "BTCUSDT", "ETHUSDT", "SOLUSDT"]
+        )
+        trading_pair.set("DOGEUSDT")
+        trading_pair.pack(padx=20, pady=5)
+
+        # Save Button
+        save_button = ctk.CTkButton(settings_window, text="Save", command=lambda: self.save_settings(
+            api_key_entry.get(),
+            api_secret_entry.get(),
+            trading_pair.get()
+        ))
+        save_button.pack(pady=20)
+
+    def save_settings(self, api_key, api_secret, pair):
+        """Збереження налаштувань (поки що тільки в лог)"""
+        self.add_log(f"Settings saved: API_KEY={api_key}, API_SECRET={'*' * len(api_secret)}, PAIR={pair}", force=True)
+
+    # ===================================================
+
+    def _start_sockets(self):
+        interval = self.interval_var.get()
         self.ticker_socket_key = self.twm.start_futures_multiplex_socket(
             callback=self.handle_ticker,
             streams=["dogeusdt@ticker"]
         )
-
-        # Свічки (kline)
         self.kline_socket_key = self.twm.start_futures_multiplex_socket(
             callback=self.handle_kline,
             streams=[f"dogeusdt@kline_{interval}"]
@@ -167,11 +208,9 @@ class DogeTradeApp(ctk.CTk):
             self.last_log_time = now
 
     def clear_logs(self):
-        """Очищення вікна логів"""
         self.log_text.delete("1.0", tk.END)
 
     def test_log(self):
-        # Тестова зміна сигналу для перевірки кольорів
         import random
         signals = ["BUY", "SELL", "HOLD"]
         sig = random.choice(signals)
@@ -182,7 +221,7 @@ class DogeTradeApp(ctk.CTk):
         if not self.running:
             return
         try:
-            data = msg.get("data", msg)  # multiplex повертає {"stream":..., "data":...}
+            data = msg.get("data", msg)
             price = float(data["c"])
             self.after(0, self.update_price_label, price)
         except Exception as e:
@@ -194,22 +233,16 @@ class DogeTradeApp(ctk.CTk):
         self.add_log(f"Futures Price updated: {price:.5f}")
 
     def update_signal(self, signal: str, price: float):
-        """Оновлення індикатора сигналу з кольорами + таблиця"""
         colors = {"BUY": "green", "SELL": "red", "HOLD": "gray"}
         self.signal_label.configure(text=f"Signal: {signal}", text_color=colors.get(signal, "gray"))
 
-        # Додаємо запис в історію сигналів з тегом
         tag = signal.lower()
         self.tree.insert(
             "", "end",
             values=(pd.Timestamp.now().strftime("%H:%M:%S"), signal, f"{price:.5f}"),
             tags=(tag,)
         )
-
-        # 🔹 Прокручування вниз (до останнього сигналу)
         self.tree.yview_moveto(1.0)
-
-        # 🔹 Налаштування кольорів тегів для рядків таблиці
         self.tree.tag_configure("buy", foreground="green")
         self.tree.tag_configure("sell", foreground="red")
         self.tree.tag_configure("hold", foreground="gray")
@@ -227,7 +260,7 @@ class DogeTradeApp(ctk.CTk):
             if closed:
                 self.df.loc[t] = [o, h, l, c, v]
                 self.after(0, self.update_chart)
-                self.after(0, self.update_signal, "HOLD", c)  # поки що завжди HOLD
+                self.after(0, self.update_signal, "HOLD", c)
                 self.after(0, self.add_log, f"New Futures candle: {t} Close={c:.5f}", True)
 
         except Exception as e:
@@ -239,25 +272,15 @@ class DogeTradeApp(ctk.CTk):
         self.chart_canvas = create_candlestick_chart(self.chart_frame, self.df)
 
     def change_interval(self, new_interval):
-        """Перезапуск kline socket для нового таймфрейму"""
         self.add_log(f"Changing timeframe to {new_interval}", force=True)
-
-        # Оновлюємо історичні дані
         self.df = get_historical_futures_klines("DOGEUSDT", new_interval, 100)
         self.update_chart()
-
-        # Перезапуск kline socket
         if self.kline_socket_key is not None:
             self.twm.stop_socket(self.kline_socket_key)
-
         self.kline_socket_key = self.twm.start_futures_multiplex_socket(
             callback=self.handle_kline,
             streams=[f"dogeusdt@kline_{new_interval}"]
         )
-
-    def open_settings(self):
-        """Тимчасова дія для кнопки ⚙️"""
-        self.add_log("⚙️ Settings clicked", force=True)
 
     def on_closing(self):
         self.running = False
