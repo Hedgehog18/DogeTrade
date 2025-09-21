@@ -46,14 +46,23 @@ class DogeTradeApp(ctk.CTk):
         self.interval_var = tk.StringVar(value="1m")
         intervals = ["1m", "5m", "15m", "1h", "4h", "1d"]
 
+        # === Кнопки справа: Test Log | [1m] | ⚙️ (⚙️ в самому правому куті) ===
+        self.settings_button = ctk.CTkButton(
+            top_frame,
+            text="⚙️",
+            width=40,
+            command=self.open_settings
+        )
+        self.settings_button.pack(side="right", padx=5)
+
         interval_menu = ctk.CTkOptionMenu(
             top_frame, variable=self.interval_var, values=intervals,
             command=self.change_interval
         )
-        interval_menu.pack(side="right", padx=10)
+        interval_menu.pack(side="right", padx=5)
 
         test_button = ctk.CTkButton(top_frame, text="Test Log", command=self.test_log)
-        test_button.pack(side="right", padx=10)
+        test_button.pack(side="right", padx=5)
 
         # === Основний розподіл (вертикальний) ===
         vertical_pane = tk.PanedWindow(
@@ -245,6 +254,10 @@ class DogeTradeApp(ctk.CTk):
             callback=self.handle_kline,
             streams=[f"dogeusdt@kline_{new_interval}"]
         )
+
+    def open_settings(self):
+        """Тимчасова дія для кнопки ⚙️"""
+        self.add_log("⚙️ Settings clicked", force=True)
 
     def on_closing(self):
         self.running = False
