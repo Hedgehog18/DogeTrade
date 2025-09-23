@@ -7,7 +7,7 @@ import pandas as pd
 import time
 
 from core.binance_api import get_historical_futures_klines
-from core import config
+# from core import config
 from ui.chart import create_candlestick_chart
 from core.database import get_settings, save_settings
 
@@ -30,8 +30,8 @@ class DogeTradeApp(ctk.CTk):
         s = get_settings() or {}
         self.symbol = s.get("trading_pair", "DOGEUSDT")
         default_tf = s.get("default_timeframe", "1m")
-        self.api_key = s.get("api_key", config.BINANCE_API_KEY)
-        self.api_secret = s.get("api_secret", config.BINANCE_API_SECRET)
+        self.api_key = s.get("api_key", "")
+        self.api_secret = s.get("api_secret", "")
 
         self.df = None
         self.kline_socket_key = None

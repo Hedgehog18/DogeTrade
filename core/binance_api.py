@@ -1,10 +1,9 @@
 import pandas as pd
 from binance.client import Client
-from core import config
 
 
-# Binance Futures client
-client = Client(config.BINANCE_API_KEY, config.BINANCE_API_SECRET)
+# Binance Futures client (публічний, без ключів)
+client = Client()
 
 
 def get_historical_futures_klines(symbol: str, interval: str, limit: int = 100) -> pd.DataFrame:
