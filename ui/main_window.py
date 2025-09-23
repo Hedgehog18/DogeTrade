@@ -1,3 +1,4 @@
+# ui/main_window.py
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 import customtkinter as ctk
@@ -8,85 +9,81 @@ import time
 from core.binance_api import get_historical_futures_klines
 from core import config
 from ui.chart import create_candlestick_chart
+from core.database import get_settings, save_settings
+
+
+def _symbol_to_label(symbol: str) -> str:
+    s = symbol.upper()
+    return f"{s[:-4]}/USDT (Futures)" if s.endswith("USDT") else f"{s} (Futures)"
 
 
 class DogeTradeApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        # Налаштування головного вікна
         self.title("DogeTrade Signals (Futures)")
         self.geometry("1000x600")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-        # Прапорець для завершення
         self.running = True
 
-        # DataFrame для свічок
-        self.df = None
+        # === settings from DB (fallback to config) ===
+        s = get_settings() or {}
+        self.symbol = s.get("trading_pair", "DOGEUSDT")
+        default_tf = s.get("default_timeframe", "1m")
+        self.api_key = s.get("api_key", config.BINANCE_API_KEY)
+        self.api_secret = s.get("api_secret", config.BINANCE_API_SECRET)
 
-        # Ключі сокетів
+        self.df = None
         self.kline_socket_key = None
         self.ticker_socket_key = None
 
-        # === Верхня панель ===
-        top_frame = ctk.CTkFrame(self, height=50)
-        top_frame.pack(side="top", fill="x", padx=5, pady=5)
+        # === top bar ===
+        top = ctk.CTkFrame(self, height=50)
+        top.pack(side="top", fill="x", padx=5, pady=5)
 
-        self.pair_label = ctk.CTkLabel(top_frame, text="DOGE/USDT (Futures)", font=("Arial", 18, "bold"))
+        self.pair_label = ctk.CTkLabel(top, text=_symbol_to_label(self.symbol), font=("Arial", 18, "bold"))
         self.pair_label.pack(side="left", padx=10)
 
-        self.price_label = ctk.CTkLabel(top_frame, text="Last Price: 0.00000", font=("Arial", 16))
+        self.price_label = ctk.CTkLabel(top, text="Last Price: 0.00000", font=("Arial", 16))
         self.price_label.pack(side="left", padx=20)
 
-        self.signal_label = ctk.CTkLabel(top_frame, text="Signal: HOLD", font=("Arial", 16), text_color="gray")
+        self.signal_label = ctk.CTkLabel(top, text="Signal: HOLD", font=("Arial", 16), text_color="gray")
         self.signal_label.pack(side="left", padx=20)
 
-        # Таймфрейм селектор
-        self.interval_var = tk.StringVar(value="1m")
+        # right side order: Test Log | 1m | ⚙️
+        self.interval_var = tk.StringVar(value=default_tf)
         intervals = ["1m", "5m", "15m", "1h", "4h", "1d"]
 
-        interval_menu = ctk.CTkOptionMenu(
-            top_frame, variable=self.interval_var, values=intervals,
-            command=self.change_interval
-        )
+        settings_btn = ctk.CTkButton(top, text="⚙️", width=40, command=self.open_settings_window)
+        settings_btn.pack(side="right", padx=10)
+
+        interval_menu = ctk.CTkOptionMenu(top, variable=self.interval_var, values=intervals, command=self.change_interval)
         interval_menu.pack(side="right", padx=10)
 
-        test_button = ctk.CTkButton(top_frame, text="Test Log", command=self.test_log)
-        test_button.pack(side="right", padx=10)
+        test_btn = ctk.CTkButton(top, text="Test Log", command=self.test_log)
+        test_btn.pack(side="right", padx=10)
 
-        # === Основний розподіл (вертикальний) ===
-        vertical_pane = tk.PanedWindow(
-            self, orient=tk.VERTICAL, sashrelief="raised", sashwidth=6, bg="gray30"
-        )
-        vertical_pane.pack(side="top", fill="both", expand=True, padx=5, pady=5)
+        # === panes ===
+        vpane = tk.PanedWindow(self, orient=tk.VERTICAL, sashrelief="raised", sashwidth=6, bg="gray30")
+        vpane.pack(side="top", fill="both", expand=True, padx=5, pady=5)
 
-        # === Горизонтальний розподіл (графік ↔ сигнали) ===
-        horizontal_pane = tk.PanedWindow(
-            vertical_pane, orient=tk.HORIZONTAL, sashrelief="raised", sashwidth=6, bg="gray30"
-        )
-        vertical_pane.add(horizontal_pane, stretch="always")
+        hpane = tk.PanedWindow(vpane, orient=tk.HORIZONTAL, sashrelief="raised", sashwidth=6, bg="gray30")
+        vpane.add(hpane, stretch="always")
 
-        # Ліва частина (графік)
-        self.chart_frame = ctk.CTkFrame(horizontal_pane)
-        horizontal_pane.add(self.chart_frame, stretch="always")
+        # chart (left)
+        self.chart_frame = ctk.CTkFrame(hpane)
+        hpane.add(self.chart_frame, stretch="always")
 
-        # Історичні дані з Futures
-        self.df = get_historical_futures_klines("DOGEUSDT", "1m", 100)
-
-        # Малюємо свічковий графік
+        self.df = get_historical_futures_klines(self.symbol, self.interval_var.get(), 100)
         self.chart_canvas = create_candlestick_chart(self.chart_frame, self.df)
 
-        # Права частина (історія сигналів)
-        signals_frame = ctk.CTkFrame(horizontal_pane, width=250)
-        horizontal_pane.add(signals_frame)
+        # signal history (right)
+        right = ctk.CTkFrame(hpane, width=250)
+        hpane.add(right)
 
-        history_label = ctk.CTkLabel(signals_frame, text="Signal History", font=("Arial", 14, "bold"))
-        history_label.pack(pady=5)
+        ctk.CTkLabel(right, text="Signal History", font=("Arial", 14, "bold")).pack(pady=5)
 
-        self.tree = ttk.Treeview(signals_frame, columns=("time", "signal", "price"), show="headings", height=15)
-
-        # 🔹 Збільшення шрифту в таблиці
+        self.tree = ttk.Treeview(right, columns=("time", "signal", "price"), show="headings", height=15)
         style = ttk.Style()
         style.configure("Treeview", font=("Arial", 13))
         style.configure("Treeview.Heading", font=("Arial", 14, "bold"))
@@ -94,63 +91,67 @@ class DogeTradeApp(ctk.CTk):
         self.tree.heading("time", text="Time")
         self.tree.heading("signal", text="Signal")
         self.tree.heading("price", text="Price")
-
         self.tree.column("time", width=100)
         self.tree.column("signal", width=70)
         self.tree.column("price", width=80)
-
         self.tree.pack(side="left", fill="both", expand=True)
 
-        # 🔹 Додаємо бокову прокрутку
-        tree_scrollbar = ttk.Scrollbar(signals_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscroll=tree_scrollbar.set)
-        tree_scrollbar.pack(side="right", fill="y")
+        sbar = ttk.Scrollbar(right, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscroll=sbar.set)
+        sbar.pack(side="right", fill="y")
 
-        # Нижня частина (логи + кнопки)
-        bottom_frame = ctk.CTkFrame(vertical_pane, height=100)
-        vertical_pane.add(bottom_frame)
+        # logs (bottom)
+        bottom = ctk.CTkFrame(vpane, height=100)
+        vpane.add(bottom)
 
-        # Логи
-        self.log_text = scrolledtext.ScrolledText(
-            bottom_frame, height=5, bg="#1e1e1e", fg="white", font=("Consolas", 13)
-        )
+        self.log_text = scrolledtext.ScrolledText(bottom, height=5, bg="#1e1e1e", fg="white", font=("Consolas", 13))
         self.log_text.pack(fill="both", expand=True, side="left")
 
-        # Кнопка очищення логів
-        clear_button = ctk.CTkButton(bottom_frame, text="Clear Logs", command=self.clear_logs)
-        clear_button.pack(side="right", padx=5, pady=5)
-
-        # Логування (затримка)
+        ctk.CTkButton(bottom, text="Clear Logs", command=self.clear_logs).pack(side="right", padx=5, pady=5)
         self.last_log_time = 0
 
-        # Запускаємо WebSocket
-        self.twm = ThreadedWebsocketManager(
-            api_key=config.BINANCE_API_KEY,
-            api_secret=config.BINANCE_API_SECRET
-        )
+        # websockets (start once)
+        self.twm = ThreadedWebsocketManager(api_key=self.api_key, api_secret=self.api_secret)
         self.twm.start()
-
-        # Запуск futures сокетів
         self._start_sockets()
 
         self.add_log("Connected to Binance Futures WebSocket", force=True)
 
+    # ===== sockets =====
     def _start_sockets(self):
-        """Запуск futures ticker та kline через multiplex"""
         interval = self.interval_var.get()
+        sym = self.symbol.lower()
 
-        # Ціна (ticker)
+        # stop old
+        if self.ticker_socket_key:
+            try:
+                self.twm.stop_socket(self.ticker_socket_key)
+            except KeyError:
+                pass
+            except Exception:
+                pass
+            self.ticker_socket_key = None
+
+        if self.kline_socket_key:
+            try:
+                self.twm.stop_socket(self.kline_socket_key)
+            except KeyError:
+                pass
+            except Exception:
+                pass
+            self.kline_socket_key = None
+
+        # start new
         self.ticker_socket_key = self.twm.start_futures_multiplex_socket(
             callback=self.handle_ticker,
-            streams=["dogeusdt@ticker"]
+            streams=[f"{sym}@ticker"]
         )
-
-        # Свічки (kline)
         self.kline_socket_key = self.twm.start_futures_multiplex_socket(
             callback=self.handle_kline,
-            streams=[f"dogeusdt@kline_{interval}"]
+            streams=[f"{sym}@kline_{interval}"]
         )
 
+    # ===== logs & ui =====
     def add_log(self, message: str, force: bool = False):
         now = time.time()
         if force or now - self.last_log_time >= 5:
@@ -158,22 +159,20 @@ class DogeTradeApp(ctk.CTk):
             self.last_log_time = now
 
     def clear_logs(self):
-        """Очищення вікна логів"""
         self.log_text.delete("1.0", tk.END)
 
     def test_log(self):
-        # Тестова зміна сигналу для перевірки кольорів
         import random
-        signals = ["BUY", "SELL", "HOLD"]
-        sig = random.choice(signals)
+        sig = random.choice(["BUY", "SELL", "HOLD"])
         self.update_signal(sig, price=0.12345)
         self.add_log(f"Test log message: {sig}", force=True)
 
+    # ===== handlers =====
     def handle_ticker(self, msg):
         if not self.running:
             return
         try:
-            data = msg.get("data", msg)  # multiplex повертає {"stream":..., "data":...}
+            data = msg.get("data", msg)
             price = float(data["c"])
             self.after(0, self.update_price_label, price)
         except Exception as e:
@@ -185,22 +184,13 @@ class DogeTradeApp(ctk.CTk):
         self.add_log(f"Futures Price updated: {price:.5f}")
 
     def update_signal(self, signal: str, price: float):
-        """Оновлення індикатора сигналу з кольорами + таблиця"""
         colors = {"BUY": "green", "SELL": "red", "HOLD": "gray"}
         self.signal_label.configure(text=f"Signal: {signal}", text_color=colors.get(signal, "gray"))
-
-        # Додаємо запис в історію сигналів з тегом
         tag = signal.lower()
-        self.tree.insert(
-            "", "end",
-            values=(pd.Timestamp.now().strftime("%H:%M:%S"), signal, f"{price:.5f}"),
-            tags=(tag,)
-        )
-
-        # 🔹 Прокручування вниз (до останнього сигналу)
+        self.tree.insert("", "end",
+                         values=(pd.Timestamp.now().strftime("%H:%M:%S"), signal, f"{price:.5f}"),
+                         tags=(tag,))
         self.tree.yview_moveto(1.0)
-
-        # 🔹 Налаштування кольорів тегів для рядків таблиці
         self.tree.tag_configure("buy", foreground="green")
         self.tree.tag_configure("sell", foreground="red")
         self.tree.tag_configure("hold", foreground="gray")
@@ -213,14 +203,11 @@ class DogeTradeApp(ctk.CTk):
             k = data["k"]
             t = pd.to_datetime(k["t"], unit="ms")
             o, h, l, c, v = map(float, [k["o"], k["h"], k["l"], k["c"], k["v"]])
-            closed = k["x"]
-
-            if closed:
+            if k["x"]:
                 self.df.loc[t] = [o, h, l, c, v]
                 self.after(0, self.update_chart)
-                self.after(0, self.update_signal, "HOLD", c)  # поки що завжди HOLD
+                self.after(0, self.update_signal, "HOLD", c)
                 self.after(0, self.add_log, f"New Futures candle: {t} Close={c:.5f}", True)
-
         except Exception as e:
             if self.running:
                 self.after(0, self.add_log, f"Kline error: {e}", True)
@@ -230,24 +217,133 @@ class DogeTradeApp(ctk.CTk):
         self.chart_canvas = create_candlestick_chart(self.chart_frame, self.df)
 
     def change_interval(self, new_interval):
-        """Перезапуск kline socket для нового таймфрейму"""
         self.add_log(f"Changing timeframe to {new_interval}", force=True)
-
-        # Оновлюємо історичні дані
-        self.df = get_historical_futures_klines("DOGEUSDT", new_interval, 100)
+        self.df = get_historical_futures_klines(self.symbol, new_interval, 100)
         self.update_chart()
+        self._start_sockets()
 
-        # Перезапуск kline socket
-        if self.kline_socket_key is not None:
-            self.twm.stop_socket(self.kline_socket_key)
+    # ===== settings modal =====
+    def _attach_paste_support(self, entry: ctk.CTkEntry):
+        """Надійна підтримка вставки: Ctrl+V, Shift+Insert, <<Paste>>, правий клік."""
+        def paste_from_clipboard(_=None):
+            try:
+                txt = self.clipboard_get()
+            except Exception:
+                return "break"
+            entry.insert(tk.INSERT, txt)
+            return "break"
 
-        self.kline_socket_key = self.twm.start_futures_multiplex_socket(
-            callback=self.handle_kline,
-            streams=[f"dogeusdt@kline_{new_interval}"]
-        )
+        for ev in ("<Control-v>", "<Control-V>", "<<Paste>>", "<Shift-Insert>"):
+            entry.bind(ev, lambda e, f=paste_from_clipboard: f())
 
+        # інколи події ловить внутрішній tkinter.Entry
+        try:
+            inner = entry._entry  # type: ignore[attr-defined]
+            for ev in ("<Control-v>", "<Control-V>", "<<Paste>>", "<Shift-Insert>"):
+                inner.bind(ev, lambda e, f=paste_from_clipboard: f())
+        except Exception:
+            pass
+
+        # контекстне меню
+        menu = tk.Menu(entry, tearoff=0)
+        menu.add_command(label="Paste", command=paste_from_clipboard)
+
+        def show_menu(e):
+            try:
+                menu.tk_popup(e.x_root, e.y_root)
+            finally:
+                menu.grab_release()
+
+        entry.bind("<Button-3>", show_menu)
+
+    def open_settings_window(self):
+        s = get_settings() or {
+            "api_key": self.api_key,
+            "api_secret": self.api_secret,
+            "trading_pair": self.symbol,
+            "default_timeframe": self.interval_var.get(),
+        }
+
+        win = ctk.CTkToplevel(self)
+        win.title("Налаштування")
+        win.geometry("420x360")
+        win.grab_set()
+        win.focus_set()
+
+        ctk.CTkLabel(win, text="Application Settings", font=("Arial", 18, "bold")).pack(pady=12)
+
+        # API Key (visible) + paste support
+        ctk.CTkLabel(win, text="API Key:").pack(anchor="w", padx=20, pady=(8, 0))
+        api_key_entry = ctk.CTkEntry(win, show="")
+        api_key_entry.insert(0, s.get("api_key", ""))
+        api_key_entry.pack(fill="x", padx=20)
+        self._attach_paste_support(api_key_entry)
+
+        # API Secret (hidden) + paste support
+        ctk.CTkLabel(win, text="API Secret:").pack(anchor="w", padx=20, pady=(8, 0))
+        api_secret_entry = ctk.CTkEntry(win, show="*")
+        api_secret_entry.insert(0, s.get("api_secret", ""))
+        api_secret_entry.pack(fill="x", padx=20)
+        self._attach_paste_support(api_secret_entry)
+
+        ctk.CTkLabel(win, text="Trading Pair:").pack(anchor="w", padx=20, pady=(8, 0))
+        tp_var = tk.StringVar(value=s.get("trading_pair", "DOGEUSDT"))
+        ctk.CTkOptionMenu(win, variable=tp_var,
+                          values=["DOGEUSDT", "SOLUSDT", "BTCUSDT", "ETHUSDT"]).pack(fill="x", padx=20)
+
+        ctk.CTkLabel(win, text="Default Timeframe:").pack(anchor="w", padx=20, pady=(8, 0))
+        tf_var = tk.StringVar(value=s.get("default_timeframe", "1m"))
+        ctk.CTkOptionMenu(win, variable=tf_var,
+                          values=["1m", "5m", "15m", "1h", "4h", "1d"]).pack(fill="x", padx=20)
+
+        def save_and_close():
+            new_api_key = api_key_entry.get().strip()
+            new_api_secret = api_secret_entry.get().strip()
+            new_symbol = tp_var.get().strip()
+            new_tf = tf_var.get().strip()
+
+            win.destroy()  # закриваємо миттєво
+            self.after(100, lambda: self.apply_new_settings(new_api_key, new_api_secret, new_symbol, new_tf))
+
+        ctk.CTkButton(win, text="Зберегти", command=save_and_close).pack(pady=16)
+
+    def apply_new_settings(self, new_api_key, new_api_secret, new_symbol, new_tf):
+        save_settings(new_api_key, new_api_secret, new_symbol, new_tf)
+
+        self.api_key = new_api_key
+        self.api_secret = new_api_secret
+        self.symbol = new_symbol
+        self.interval_var.set(new_tf)
+        self.pair_label.configure(text=_symbol_to_label(self.symbol))
+
+        self.df = get_historical_futures_klines(self.symbol, self.interval_var.get(), 100)
+        self.update_chart()
+        self._start_sockets()
+        self.add_log(f"Settings applied: {self.symbol} @ {self.interval_var.get()}", True)
+
+    # ===== closing =====
     def on_closing(self):
         self.running = False
+        try:
+            if self.kline_socket_key:
+                try:
+                    self.twm.stop_socket(self.kline_socket_key)
+                except KeyError:
+                    pass
+                except Exception:
+                    pass
+                self.kline_socket_key = None
+            if self.ticker_socket_key:
+                try:
+                    self.twm.stop_socket(self.ticker_socket_key)
+                except KeyError:
+                    pass
+                except Exception:
+                    pass
+                self.ticker_socket_key = None
+        except Exception:
+            pass
+        time.sleep(0.2)
         if self.twm is not None:
             try:
                 self.twm.stop()
