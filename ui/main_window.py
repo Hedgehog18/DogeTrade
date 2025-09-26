@@ -5,6 +5,7 @@ import customtkinter as ctk
 from binance import ThreadedWebsocketManager
 import pandas as pd
 import time
+from core import signals
 
 from core.binance_api import get_historical_futures_klines
 # from core import config
@@ -36,6 +37,7 @@ class DogeTradeApp(ctk.CTk):
         self.df = None
         self.kline_socket_key = None
         self.ticker_socket_key = None
+        self.selected_strategy = "EMA"  # 🔹 стратегія за замовчуванням
 
         # === top bar ===
         top = ctk.CTkFrame(self, height=50)
@@ -104,10 +106,44 @@ class DogeTradeApp(ctk.CTk):
         bottom = ctk.CTkFrame(vpane, height=100)
         vpane.add(bottom)
 
-        self.log_text = scrolledtext.ScrolledText(bottom, height=5, bg="#1e1e1e", fg="white", font=("Consolas", 13))
-        self.log_text.pack(fill="both", expand=True, side="left")
+        # Ліва частина (для логів)
+        logs_frame = ctk.CTkFrame(bottom)
+        logs_frame.pack(side="left", fill="both", expand=True)
 
-        ctk.CTkButton(bottom, text="Clear Logs", command=self.clear_logs).pack(side="right", padx=5, pady=5)
+        self.log_text = scrolledtext.ScrolledText(
+            logs_frame, height=5, bg="#1e1e1e", fg="white", font=("Consolas", 13)
+        )
+        self.log_text.pack(fill="both", expand=True)
+
+        # Права частина (для кнопок)
+        right_controls = ctk.CTkFrame(bottom, width=120)
+        right_controls.pack(side="right", fill="y", padx=5, pady=5)
+
+        # Кнопка очистки логів (свій колір)
+        self.clear_btn = ctk.CTkButton(
+            right_controls,
+            text="Clear Logs",
+            width=100,
+            fg_color="gray30",  # темно-сірий фон
+            hover_color="gray40",  # трохи світліший при наведенні
+            command=self.clear_logs
+        )
+        self.clear_btn.pack(side="top", padx=5, pady=5)
+
+        # Кнопки вибору стратегії
+        self.ema_button = ctk.CTkButton(
+            right_controls, text="EMA", width=100,
+            command=lambda: self.set_strategy("EMA")
+        )
+        self.ema_button.pack(side="top", padx=5, pady=5)
+
+        self.rsi_button = ctk.CTkButton(
+            right_controls, text="RSI", width=100,
+            command=lambda: self.set_strategy("RSI")
+        )
+        self.rsi_button.pack(side="top", padx=5, pady=5)
+
+        self.highlight_strategy_button("EMA")
         self.last_log_time = 0
 
         # websockets (start once)
@@ -116,6 +152,23 @@ class DogeTradeApp(ctk.CTk):
         self._start_sockets()
 
         self.add_log("Connected to Binance Futures WebSocket", force=True)
+
+    # ===== strategy controls =====
+    def set_strategy(self, strategy: str):
+        self.selected_strategy = strategy
+        self.highlight_strategy_button(strategy)
+        self.add_log(f"Strategy switched to {strategy}", force=True)
+
+    def highlight_strategy_button(self, strategy: str):
+        # Скидаємо стилі
+        self.ema_button.configure(fg_color="transparent")
+        self.rsi_button.configure(fg_color="transparent")
+
+        # Виділяємо активну
+        if strategy == "EMA":
+            self.ema_button.configure(fg_color="blue")
+        elif strategy == "RSI":
+            self.rsi_button.configure(fg_color="blue")
 
     # ===== sockets =====
     def _start_sockets(self):
@@ -203,10 +256,20 @@ class DogeTradeApp(ctk.CTk):
             k = data["k"]
             t = pd.to_datetime(k["t"], unit="ms")
             o, h, l, c, v = map(float, [k["o"], k["h"], k["l"], k["c"], k["v"]])
-            if k["x"]:
+            if k["x"]:  # свічка закрита
                 self.df.loc[t] = [o, h, l, c, v]
+
                 self.after(0, self.update_chart)
-                self.after(0, self.update_signal, "HOLD", c)
+
+                # 🔹 вибір стратегії
+                if self.selected_strategy == "EMA":
+                    signal = signals.ema_crossover(self.df, fast=9, slow=21)
+                elif self.selected_strategy == "RSI":
+                    signal = signals.rsi_strategy(self.df, period=14)
+                else:
+                    signal = "HOLD"
+
+                self.after(0, self.update_signal, signal, c)
                 self.after(0, self.add_log, f"New Futures candle: {t} Close={c:.5f}", True)
         except Exception as e:
             if self.running:
@@ -236,7 +299,6 @@ class DogeTradeApp(ctk.CTk):
         for ev in ("<Control-v>", "<Control-V>", "<<Paste>>", "<Shift-Insert>"):
             entry.bind(ev, lambda e, f=paste_from_clipboard: f())
 
-        # інколи події ловить внутрішній tkinter.Entry
         try:
             inner = entry._entry  # type: ignore[attr-defined]
             for ev in ("<Control-v>", "<Control-V>", "<<Paste>>", "<Shift-Insert>"):
@@ -244,7 +306,6 @@ class DogeTradeApp(ctk.CTk):
         except Exception:
             pass
 
-        # контекстне меню
         menu = tk.Menu(entry, tearoff=0)
         menu.add_command(label="Paste", command=paste_from_clipboard)
 
@@ -272,14 +333,12 @@ class DogeTradeApp(ctk.CTk):
 
         ctk.CTkLabel(win, text="Application Settings", font=("Arial", 18, "bold")).pack(pady=12)
 
-        # API Key (visible) + paste support
         ctk.CTkLabel(win, text="API Key:").pack(anchor="w", padx=20, pady=(8, 0))
         api_key_entry = ctk.CTkEntry(win, show="")
         api_key_entry.insert(0, s.get("api_key", ""))
         api_key_entry.pack(fill="x", padx=20)
         self._attach_paste_support(api_key_entry)
 
-        # API Secret (hidden) + paste support
         ctk.CTkLabel(win, text="API Secret:").pack(anchor="w", padx=20, pady=(8, 0))
         api_secret_entry = ctk.CTkEntry(win, show="*")
         api_secret_entry.insert(0, s.get("api_secret", ""))
@@ -302,7 +361,7 @@ class DogeTradeApp(ctk.CTk):
             new_symbol = tp_var.get().strip()
             new_tf = tf_var.get().strip()
 
-            win.destroy()  # закриваємо миттєво
+            win.destroy()
             self.after(100, lambda: self.apply_new_settings(new_api_key, new_api_secret, new_symbol, new_tf))
 
         ctk.CTkButton(win, text="Зберегти", command=save_and_close).pack(pady=16)
