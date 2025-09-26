@@ -40,3 +40,19 @@ def bollinger_bands(df: pd.DataFrame, period: int = 20, std_factor: float = 2.0,
         "upper": upper,
         "lower": lower
     }, index=df.index)
+
+
+def macd(df, fast=12, slow=26, signal=9):
+    """
+    Обчислює MACD (Moving Average Convergence Divergence).
+    Повертає три Series: macd_line, signal_line, histogram
+    """
+    if len(df) < slow:
+        return None, None, None
+
+    fast_ema = df["close"].ewm(span=fast, adjust=False).mean()
+    slow_ema = df["close"].ewm(span=slow, adjust=False).mean()
+    macd_line = fast_ema - slow_ema
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram

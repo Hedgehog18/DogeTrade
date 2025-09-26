@@ -143,6 +143,12 @@ class DogeTradeApp(ctk.CTk):
         )
         self.rsi_button.pack(side="top", padx=5, pady=5)
 
+        self.macd_button = ctk.CTkButton(
+            right_controls, text="MACD", width=100,
+            command=lambda: self.set_strategy("MACD")
+        )
+        self.macd_button.pack(side="top", padx=5, pady=5)
+
         self.highlight_strategy_button("EMA")
         self.last_log_time = 0
 
@@ -163,12 +169,15 @@ class DogeTradeApp(ctk.CTk):
         # Скидаємо стилі
         self.ema_button.configure(fg_color="transparent")
         self.rsi_button.configure(fg_color="transparent")
+        self.macd_button.configure(fg_color="transparent")
 
         # Виділяємо активну
         if strategy == "EMA":
             self.ema_button.configure(fg_color="blue")
         elif strategy == "RSI":
             self.rsi_button.configure(fg_color="blue")
+        elif strategy == "MACD":
+            self.macd_button.configure(fg_color="blue")
 
     # ===== sockets =====
     def _start_sockets(self):
@@ -266,6 +275,8 @@ class DogeTradeApp(ctk.CTk):
                     signal = signals.ema_crossover(self.df, fast=9, slow=21)
                 elif self.selected_strategy == "RSI":
                     signal = signals.rsi_strategy(self.df, period=14)
+                elif self.selected_strategy == "MACD":
+                    signal = signals.macd_strategy(self.df, fast=12, slow=26, signal=9)
                 else:
                     signal = "HOLD"
 

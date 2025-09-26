@@ -1,7 +1,5 @@
 import pandas as pd
 from core import indicators
-from core.indicators import macd
-
 
 def ema_crossover(df: pd.DataFrame, fast: int = 9, slow: int = 21, column: str = "close") -> str:
     """
@@ -23,9 +21,7 @@ def ema_crossover(df: pd.DataFrame, fast: int = 9, slow: int = 21, column: str =
     else:
         return "HOLD"
 
-
-def rsi_strategy(df: pd.DataFrame, period: int = 14, overbought: int = 70, oversold: int = 30,
-                 column: str = "close") -> str:
+def rsi_strategy(df: pd.DataFrame, period: int = 14, overbought: int = 70, oversold: int = 30, column: str = "close") -> str:
     """
     Стратегія на основі RSI:
     - BUY, якщо RSI < oversold
@@ -44,21 +40,3 @@ def rsi_strategy(df: pd.DataFrame, period: int = 14, overbought: int = 70, overs
         return "SELL"
     else:
         return "HOLD"
-
-
-def macd_strategy(df, fast=12, slow=26, signal=9):
-    """
-    Стратегія MACD crossover:
-    BUY → MACD вище Signal
-    SELL → MACD нижче Signal
-    HOLD → інакше
-    """
-    macd_line, signal_line, hist = macd(df, fast, slow, signal)
-    if macd_line is None:
-        return "HOLD"
-
-    if macd_line.iloc[-1] > signal_line.iloc[-1]:
-        return "BUY"
-    elif macd_line.iloc[-1] < signal_line.iloc[-1]:
-        return "SELL"
-    return "HOLD"
